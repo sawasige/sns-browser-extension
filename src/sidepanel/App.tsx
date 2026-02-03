@@ -27,6 +27,8 @@ export default function App() {
         return account.isNotFollowingBack;
       case 'both':
         return account.isInactive || account.isNotFollowingBack;
+      case 'all':
+        return true;
       default:
         return true;
     }

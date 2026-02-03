@@ -84,27 +84,28 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
       });
 
       const accounts: Account[] = [];
+      let matchCount = 0;
       for (let i = 0; i < following.length; i++) {
         if (shouldStop) break;
 
         const user = following[i];
-        // In fast mode, we check if "Follows you" badge exists
-        // Since we collected from DOM, we can check the badge
+        const account: Account = {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          avatarUrl: user.avatarUrl,
+          profileUrl: `https://x.com/${user.username}`,
+          platform: PLATFORM,
+          lastPostDate: null,
+          isFollowingYou: user.followsYou,
+          isInactive: false,
+          isNotFollowingBack: !user.followsYou,
+          scannedAt: new Date(),
+        };
+        accounts.push(account);
+
         if (!user.followsYou) {
-          const account: Account = {
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName,
-            avatarUrl: user.avatarUrl,
-            profileUrl: `https://x.com/${user.username}`,
-            platform: PLATFORM,
-            lastPostDate: null,
-            isFollowingYou: false,
-            isInactive: false,
-            isNotFollowingBack: true,
-            scannedAt: new Date(),
-          };
-          accounts.push(account);
+          matchCount++;
           chrome.runtime.sendMessage({
             type: 'ACCOUNT_FOUND',
             platform: PLATFORM,
@@ -124,7 +125,7 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
         status: 'completed',
         current: following.length,
         total: following.length,
-        message: `スキャン完了: ${accounts.length}件のフォローバックなしが見つかりました`,
+        message: `スキャン完了: ${matchCount}件のフォローバックなしが見つかりました`,
       });
 
       chrome.runtime.sendMessage({
@@ -144,13 +145,14 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
     });
 
     const accounts: Account[] = [];
+    let matchCount = 0;
     for (let i = 0; i < following.length; i++) {
       if (shouldStop) {
         sendProgress({
           status: 'completed',
           current: i,
           total: following.length,
-          message: `スキャンを中断しました (${accounts.length}件検出)`,
+          message: `スキャンを中断しました (${matchCount}件検出)`,
         });
         if (accounts.length > 0) {
           chrome.runtime.sendMessage({
@@ -187,8 +189,9 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
         scannedAt: new Date(),
       };
 
+      accounts.push(account);
       if (account.isInactive || account.isNotFollowingBack) {
-        accounts.push(account);
+        matchCount++;
         chrome.runtime.sendMessage({
           type: 'ACCOUNT_FOUND',
           platform: PLATFORM,
@@ -203,7 +206,7 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
       status: 'completed',
       current: following.length,
       total: following.length,
-      message: `スキャン完了: ${accounts.length}件の該当アカウントが見つかりました`,
+      message: `スキャン完了: ${matchCount}件の該当アカウントが見つかりました`,
     });
 
     chrome.runtime.sendMessage({

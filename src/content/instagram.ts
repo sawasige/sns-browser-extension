@@ -1,5 +1,5 @@
 import type { Account, ScanProgress } from '../types';
-import { isInactiveForOneYear, parseRelativeDate } from '../utils/date';
+import { isInactiveForOneYear } from '../utils/date';
 
 const PLATFORM = 'instagram' as const;
 const SCAN_DELAY_MS = 2000; // Increased delay to avoid rate limiting
@@ -77,6 +77,7 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
       });
 
       const accounts: Account[] = [];
+      let matchCount = 0;
       for (let i = 0; i < following.length; i++) {
         if (shouldStop) {
           break;
@@ -85,21 +86,23 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
         const user = following[i];
         const isFollowingYou = followerUsernames.has(user.username);
 
+        const account: Account = {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          avatarUrl: user.avatarUrl,
+          profileUrl: `https://www.instagram.com/${user.username}/`,
+          platform: PLATFORM,
+          lastPostDate: null,
+          isFollowingYou,
+          isInactive: false,
+          isNotFollowingBack: !isFollowingYou,
+          scannedAt: new Date(),
+        };
+        accounts.push(account);
+
         if (!isFollowingYou) {
-          const account: Account = {
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName,
-            avatarUrl: user.avatarUrl,
-            profileUrl: `https://www.instagram.com/${user.username}/`,
-            platform: PLATFORM,
-            lastPostDate: null,
-            isFollowingYou: false,
-            isInactive: false,
-            isNotFollowingBack: true,
-            scannedAt: new Date(),
-          };
-          accounts.push(account);
+          matchCount++;
           chrome.runtime.sendMessage({
             type: 'ACCOUNT_FOUND',
             platform: PLATFORM,
@@ -119,7 +122,7 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
         status: 'completed',
         current: following.length,
         total: following.length,
-        message: `スキャン完了: ${accounts.length}件のフォローバックなしが見つかりました`,
+        message: `スキャン完了: ${matchCount}件のフォローバックなしが見つかりました`,
       });
 
       chrome.runtime.sendMessage({
@@ -163,7 +166,7 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
         status: 'scanning',
         current: i + 1,
         total: following.length,
-        message: `@${user.username} をチェック中... (${startIndex + i + 1}/${allFollowing.length})`,
+        message: `@${user.username} をチェック中... (${i + 1}/${following.length})`,
       });
 
       const lastPostDate = await getLastPostDate(user.username);
@@ -183,8 +186,9 @@ async function startScan(startIndex: number, limit: number, fastMode: boolean): 
         scannedAt: new Date(),
       };
 
+      // 全アカウントを保存（フィルターはUI側で行う）
+      accounts.push(account);
       if (account.isInactive || account.isNotFollowingBack) {
-        accounts.push(account);
         chrome.runtime.sendMessage({
           type: 'ACCOUNT_FOUND',
           platform: PLATFORM,
@@ -259,21 +263,16 @@ async function getFollowingList(username: string): Promise<BasicUserInfo[]> {
   // Instagram uses GraphQL API internally
   const followingUrl = `https://www.instagram.com/${username}/following/`;
 
-  console.log(`[Instagram] Getting following list for: ${username}`);
-
   // Create a temporary fetch to get the data
   try {
     // Try to use Instagram's internal API
     const userId = await getUserId(username);
-    console.log(`[Instagram] Got userId: ${userId}`);
     if (userId) {
       const followingData = await fetchFollowingFromApi(userId);
-      console.log(`[Instagram] Got ${followingData.length} following from API`);
       return followingData;
     }
-  } catch (e) {
+  } catch {
     // Fall back to DOM scraping
-    console.error('[Instagram] API fetch failed:', e);
   }
 
   // Fallback: parse from current page if modal is open
@@ -300,7 +299,7 @@ async function getFollowersList(username: string): Promise<BasicUserInfo[]> {
       return await fetchFollowersFromApi(userId);
     }
   } catch {
-    console.log('Failed to fetch followers from API');
+    // Failed to fetch followers from API
   }
 
   return [];
@@ -308,24 +307,18 @@ async function getFollowersList(username: string): Promise<BasicUserInfo[]> {
 
 async function getUserId(username: string): Promise<string | null> {
   try {
-    console.log(`[Instagram] Getting user ID for: ${username}`);
     const response = await fetch(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`, {
       headers: {
         'X-IG-App-ID': '936619743392459',
       },
       credentials: 'include',
     });
-    console.log(`[Instagram] getUserId response status: ${response.status}`);
     if (response.status === 429) {
       throw new Error('レート制限されています。しばらく時間をおいてから再度お試しください。');
     }
     const data = await response.json();
-    console.log(`[Instagram] getUserId response:`, data);
-    const userId = data.data?.user?.id || null;
-    console.log(`[Instagram] User ID: ${userId}`);
-    return userId;
+    return data.data?.user?.id || null;
   } catch (e) {
-    console.error(`[Instagram] getUserId error:`, e);
     throw e;
   }
 }
@@ -334,8 +327,6 @@ async function fetchFollowingFromApi(userId: string): Promise<BasicUserInfo[]> {
   const users: BasicUserInfo[] = [];
   let endCursor: string | null = null;
   let hasNext = true;
-
-  console.log(`[Instagram] Fetching following for userId: ${userId}`);
 
   while (hasNext && !shouldStop) {
     const variables = {
@@ -348,12 +339,10 @@ async function fetchFollowingFromApi(userId: string): Promise<BasicUserInfo[]> {
 
     try {
       const response = await fetch(url, { credentials: 'include' });
-      console.log(`[Instagram] GraphQL response status: ${response.status}`);
       if (response.status === 429) {
         throw new Error('レート制限されています。しばらく時間をおいてから再度お試しください。');
       }
       const data = await response.json();
-      console.log(`[Instagram] GraphQL response:`, data);
       const edges = data.data?.user?.edge_follow?.edges || [];
 
       for (const edge of edges) {
@@ -472,56 +461,49 @@ function parseUsersFromPage(): BasicUserInfo[] {
 
 async function getLastPostDate(username: string): Promise<Date | null> {
   try {
-    const response = await fetch(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`, {
+    // First get user ID
+    const userId = await getUserId(username);
+    if (!userId) {
+      return null;
+    }
+
+    // Try feed API endpoint - get more posts to find the most recent (excluding pinned)
+    const feedUrl = `https://www.instagram.com/api/v1/feed/user/${userId}/?count=12`;
+    const response = await fetch(feedUrl, {
       headers: {
         'X-IG-App-ID': '936619743392459',
       },
       credentials: 'include',
     });
+
     if (response.status === 429) {
       throw new Error('レート制限されています。しばらく時間をおいてから再度お試しください。');
     }
-    const data = await response.json();
-    const posts = data.data?.user?.edge_owner_to_timeline_media?.edges || [];
 
-    if (posts.length > 0) {
-      const timestamp = posts[0].node.taken_at_timestamp;
-      if (timestamp) {
-        return new Date(timestamp * 1000);
+    const data = await response.json();
+    const items = data.items || [];
+
+    if (items.length > 0) {
+      // Find the most recent post by timestamp (pinned posts may appear first but have older timestamps)
+      let latestTimestamp = 0;
+      for (const item of items) {
+        const ts = item.taken_at || 0;
+        if (ts > latestTimestamp) {
+          latestTimestamp = ts;
+        }
+      }
+
+      if (latestTimestamp > 0) {
+        return new Date(latestTimestamp * 1000);
       }
     }
 
-    // Try to get from profile page DOM
-    return parseLastPostDateFromDom();
+    return null;
   } catch {
     return null;
   }
 }
 
-function parseLastPostDateFromDom(): Date | null {
-  // Look for time elements on the page
-  const timeElements = document.querySelectorAll('time[datetime]');
-  if (timeElements.length > 0) {
-    const datetime = timeElements[0].getAttribute('datetime');
-    if (datetime) {
-      return new Date(datetime);
-    }
-  }
-
-  // Look for relative date text
-  const dateTexts = document.querySelectorAll('[datetime], time');
-  for (const el of dateTexts) {
-    const text = el.textContent;
-    if (text) {
-      const parsed = parseRelativeDate(text);
-      if (parsed) {
-        return parsed;
-      }
-    }
-  }
-
-  return null;
-}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

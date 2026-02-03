@@ -1,6 +1,6 @@
 export type Platform = 'instagram' | 'twitter' | 'threads';
 
-export type FilterType = 'inactive' | 'not_following_back' | 'both';
+export type FilterType = 'inactive' | 'not_following_back' | 'both' | 'all';
 
 export interface Account {
   id: string;

@@ -6,7 +6,8 @@ interface FilterPanelProps {
 }
 
 const filters: { id: FilterType; label: string; description: string }[] = [
-  { id: 'both', label: 'すべて', description: 'すべての条件' },
+  { id: 'all', label: '全員表示', description: 'スキャンした全アカウント' },
+  { id: 'both', label: '条件一致', description: '1年以上投稿なし または フォローバックなし' },
   { id: 'inactive', label: '1年以上投稿なし', description: '1年以上投稿がないアカウント' },
   { id: 'not_following_back', label: 'フォローバックなし', description: 'フォローバックしていないアカウント' },
 ];
