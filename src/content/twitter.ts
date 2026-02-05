@@ -349,9 +349,135 @@ function parseUsersFromPage(): BasicUserInfo[] {
   return users;
 }
 
-async function getLastPostDate(_username: string): Promise<Date | null> {
-  // Twitter の API から最終投稿日を正確に取得するのは困難なため、
-  // 現在は null を返し、フォローバックなしの検出のみに集中する
+async function getLastPostDate(username: string): Promise<Date | null> {
+  try {
+    const csrfToken = getCookie('ct0');
+    if (!csrfToken) {
+      return null;
+    }
+
+    const bearerToken = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs=1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
+
+    // First get user ID
+    const userVariables = {
+      screen_name: username,
+      withSafetyModeUserFields: true,
+    };
+
+    const userFeatures = {
+      hidden_profile_subscriptions_enabled: true,
+      rweb_tipjar_consumption_enabled: true,
+      responsive_web_graphql_exclude_directive_enabled: true,
+      verified_phone_label_enabled: false,
+      subscriptions_verification_info_is_identity_verified_enabled: true,
+      subscriptions_verification_info_verified_since_enabled: true,
+      highlights_tweets_tab_ui_enabled: true,
+      responsive_web_twitter_article_notes_tab_enabled: true,
+      subscriptions_feature_can_gift_premium: true,
+      creator_subscriptions_tweet_preview_api_enabled: true,
+      responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+      responsive_web_graphql_timeline_navigation_enabled: true,
+    };
+
+    const userUrl = `https://x.com/i/api/graphql/xmU6X_CKVnQ5lSrCbAmJsg/UserByScreenName?variables=${encodeURIComponent(JSON.stringify(userVariables))}&features=${encodeURIComponent(JSON.stringify(userFeatures))}`;
+
+    const userResponse = await fetch(userUrl, {
+      headers: {
+        'authorization': `Bearer ${bearerToken}`,
+        'x-csrf-token': csrfToken,
+        'x-twitter-active-user': 'yes',
+        'x-twitter-auth-type': 'OAuth2Session',
+      },
+      credentials: 'include',
+    });
+
+    if (!userResponse.ok) {
+      return null;
+    }
+
+    const userData = await userResponse.json();
+    const userId = userData?.data?.user?.result?.rest_id;
+    if (!userId) {
+      return null;
+    }
+
+    // Get user's tweets
+    const timelineUrl = `https://x.com/i/api/graphql/E3opETHurmVJflFsUBVuUQ/UserTweets?variables=${encodeURIComponent(JSON.stringify({
+      userId,
+      count: 20,
+      includePromotedContent: true,
+      withQuickPromoteEligibilityTweetFields: true,
+      withVoice: true,
+      withV2Timeline: true,
+    }))}&features=${encodeURIComponent(JSON.stringify({
+      rweb_tipjar_consumption_enabled: true,
+      responsive_web_graphql_exclude_directive_enabled: true,
+      verified_phone_label_enabled: false,
+      creator_subscriptions_tweet_preview_api_enabled: true,
+      responsive_web_graphql_timeline_navigation_enabled: true,
+      responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+      communities_web_enable_tweet_community_results_fetch: true,
+      c9s_tweet_anatomy_moderator_badge_enabled: true,
+      articles_preview_enabled: true,
+      tweetypie_unmention_optimization_enabled: true,
+      responsive_web_edit_tweet_api_enabled: true,
+      graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
+      view_counts_everywhere_api_enabled: true,
+      longform_notetweets_consumption_enabled: true,
+      responsive_web_twitter_article_tweet_consumption_enabled: true,
+      tweet_awards_web_tipping_enabled: false,
+      creator_subscriptions_quote_tweet_preview_enabled: false,
+      freedom_of_speech_not_reach_fetch_enabled: true,
+      standardized_nudges_misinfo: true,
+      tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
+      rweb_video_timestamps_enabled: true,
+      longform_notetweets_rich_text_read_enabled: true,
+      longform_notetweets_inline_media_enabled: true,
+      responsive_web_enhance_cards_enabled: false,
+    }))}&fieldToggles=${encodeURIComponent(JSON.stringify({
+      withArticlePlainText: false,
+    }))}`;
+
+    const tweetsResponse = await fetch(timelineUrl, {
+      headers: {
+        'authorization': `Bearer ${bearerToken}`,
+        'x-csrf-token': csrfToken,
+        'x-twitter-active-user': 'yes',
+        'x-twitter-auth-type': 'OAuth2Session',
+      },
+      credentials: 'include',
+    });
+
+    if (!tweetsResponse.ok) {
+      return null;
+    }
+
+    const tweetsData = await tweetsResponse.json();
+    const instructions = tweetsData?.data?.user?.result?.timeline_v2?.timeline?.instructions || [];
+
+    for (const instruction of instructions) {
+      if (instruction.type === 'TimelineAddEntries') {
+        for (const entry of instruction.entries || []) {
+          const tweet = entry?.content?.itemContent?.tweet_results?.result;
+          if (tweet?.legacy?.created_at) {
+            return new Date(tweet.legacy.created_at);
+          }
+        }
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getCookie(name: string): string | null {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) {
+    return parts.pop()?.split(';').shift() || null;
+  }
   return null;
 }
 
